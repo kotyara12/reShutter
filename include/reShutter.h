@@ -81,7 +81,7 @@ class rShutter {
     uint8_t             _state = 0;               // Current state
     uint8_t             _queue_open = 0;          // Number of scheduled steps if the timer is active
     uint8_t             _queue_close = 0;         // Number of scheduled steps if the timer is active
-    time_t              _changed = 0;             // Time of last state change
+    time_t              _last_changed = 0;        // Time of last state change
     time_t              _last_open = 0;           // Time of last open
     time_t              _last_close = 0;          // Time of last close
     uint8_t             _last_max_state = 0;      // Last maximum opening

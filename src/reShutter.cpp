@@ -33,7 +33,7 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _mqtt_publish = cb_mqtt_publish;
 
   _state = 0;
-  _changed = 0;
+  _last_changed = 0;
   _last_open = 0;
   _last_close = 0;
   _last_max_state = 0;
@@ -56,7 +56,7 @@ rShutter::~rShutter()
 
 bool rShutter::Init()
 {
-  _changed = 0;
+  _last_changed = 0;
   _last_open = 0;
   _last_close = 0;
   _last_max_state = 0;
@@ -129,7 +129,7 @@ bool rShutter::Open(uint8_t steps)
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_open, _level_open, _duration)) {
         rlog_i(logTAG, "Open shutter %d steps ( %d milliseconds )", _steps, _duration);
-        _changed = time(nullptr);
+        _last_changed = time(nullptr);
         if (_state == 0) {
           _last_max_state = 0;
           _last_open = time(nullptr);
@@ -170,7 +170,7 @@ bool rShutter::Close(uint8_t steps)
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_close, _level_close, _duration)) {
         rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", _steps, _duration);
-        _changed = time(nullptr);
+        _last_changed = time(nullptr);
         _state -= _steps;
         if (_state == 0) {
           _last_close = time(nullptr);
@@ -193,7 +193,7 @@ bool rShutter::CloseFull(bool forced)
     timerStop();
     if (timerActivate(_pin_close, _level_close, _full_time)) {
       rlog_i(logTAG, "Сlose shutter completely");
-      _changed = time(nullptr);
+      _last_changed = time(nullptr);
       _last_close = time(nullptr);
       if (_on_changed) {
         _on_changed(this, _state, 0, _max_steps);
@@ -326,7 +326,7 @@ char* rShutter::getTimestampsJSON()
   time2str_empty( CONFIG_SHUTTER_TIMESTAMP_FORMAT, &_last_open, &_time_open[0], sizeof(_time_open));
   time2str_empty( CONFIG_SHUTTER_TIMESTAMP_FORMAT, &_last_close, &_time_close[0], sizeof(_time_close));
 
-  return = malloc_stringf("{\"" CONFIG_SHUTTER_CHANGED "\":\"%s\",\"" CONFIG_SHUTTER_OPEN "\":\"%s\",\"" CONFIG_SHUTTER_CLOSE "\":\"%s\"}", _time_changed, _time_open, _time_close);
+  return malloc_stringf("{\"" CONFIG_SHUTTER_CHANGED "\":\"%s\",\"" CONFIG_SHUTTER_OPEN "\":\"%s\",\"" CONFIG_SHUTTER_CLOSE "\":\"%s\"}", _time_changed, _time_open, _time_close);
 }
 
 char* rShutter::getJSON()
