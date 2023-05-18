@@ -97,6 +97,16 @@ float rShutter::getPercent()
   return (float)_state / _max_steps * 100.0;
 }
 
+bool rShutter::isFullOpen()
+{
+  return _state >= _max_steps;
+}
+
+bool rShutter::isFullClose()
+{
+  return _state == 0;
+}
+
 uint32_t rShutter::calcStepTimeout(uint8_t step)
 {
   uint32_t ret = _step_time;
@@ -124,7 +134,7 @@ bool rShutter::Open(uint8_t steps)
       // Calculate time
       uint32_t _duration = 0;
       for (uint8_t i = 1; i <= _steps; i++) {
-        _duration += calcStepTimeout(_state + _steps);
+        _duration += calcStepTimeout(_state + i);
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_open, _level_open, _duration)) {
@@ -165,7 +175,10 @@ bool rShutter::Close(uint8_t steps)
       // Calculate time
       uint32_t _duration = 0;
       for (uint8_t i = _steps; i > 0 ; i--) {
-        _duration += calcStepTimeout(_state - _steps + 1);
+        _duration += calcStepTimeout(_state - i + 1);
+        if (_state - i == 0) {
+          _duration += _step_time_fin;
+        }
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_close, _level_close, _duration)) {
@@ -346,4 +359,65 @@ char* rShutter::getJSON()
   if (_json_time) free(_json_time);
 
   return _json;
+}
+
+// -----------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------- rGpioShutter -----------------------------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
+
+rGpioShutter::rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
+  uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+:rShutter(pin_open, level_open, pin_close, level_close, 
+  max_steps, full_time, step_time, step_time_adj, step_time_fin,
+  cb_state_changed, cb_mqtt_publish)
+{
+}
+
+bool rGpioShutter::gpioInit()
+{
+  // Configure internal GPIO to output
+  gpio_reset_pin((gpio_num_t)_pin_open);
+  gpio_reset_pin((gpio_num_t)_pin_close);
+  ERR_SHUTTER_CHECK(gpio_set_direction((gpio_num_t)_pin_open, GPIO_MODE_OUTPUT), ERR_GPIO_SET_MODE);
+  ERR_SHUTTER_CHECK(gpio_set_direction((gpio_num_t)_pin_close, GPIO_MODE_OUTPUT), ERR_GPIO_SET_MODE);
+  return true;
+}
+
+bool rGpioShutter::gpioSetLevel(uint8_t pin, bool physical_level)
+{
+  ERR_SHUTTER_CHECK(gpio_set_level((gpio_num_t)pin, (uint32_t)physical_level), ERR_GPIO_SET_LEVEL);
+  return true;
+}
+
+// -----------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------------- rIoExtShutter -----------------------------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
+
+rIoExpShutter::rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
+  uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+  cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
+  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+:rShutter(pin_open, level_open, pin_close, level_close, 
+  max_steps, full_time, step_time, step_time_adj, step_time_fin,
+  cb_state_changed, cb_mqtt_publish)
+{
+  _gpio_init = cb_gpio_init;
+  _gpio_change = cb_gpio_change;
+}
+
+bool rIoExpShutter::gpioInit()
+{
+  if (_gpio_init) {
+    return _gpio_init(this, _pin_open, _level_open) && _gpio_init(this, _pin_close, _level_close);
+  };
+  return true;
+}
+
+bool rIoExpShutter::gpioSetLevel(uint8_t pin, bool physical_level)
+{
+  if (_gpio_change) {
+    return _gpio_change(this, pin, physical_level);
+  };
+  return true;
 }

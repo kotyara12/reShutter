@@ -41,6 +41,8 @@ class rShutter {
     // Current state
     uint8_t getState();
     float getPercent();
+    bool isFullOpen();
+    bool isFullClose();
 
     // Generate JSON
     char* getStateJSON(uint8_t state);
@@ -102,6 +104,30 @@ class rShutter {
     bool timerActivate(uint8_t pin, bool level, uint32_t duration_ms);
     bool timerIsActive();
     bool timerStop();
+};
+
+class rGpioShutter: public rShutter {
+  public:
+    rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
+      uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+      cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
+  protected:
+    bool gpioInit() override;
+    bool gpioSetLevel(uint8_t pin, bool physical_level) override; 
+};
+
+class rIoExpShutter: public rShutter {
+  public:
+    rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
+      uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+      cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
+      cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
+  protected:
+    bool gpioInit() override;
+    bool gpioSetLevel(uint8_t pin, bool physical_level) override; 
+  private:
+    cb_shutter_gpio_init_t _gpio_init = nullptr;
+    cb_shutter_gpio_change_t _gpio_change = nullptr;
 };
 
 #ifdef __cplusplus
