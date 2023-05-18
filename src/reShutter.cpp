@@ -114,13 +114,13 @@ time_t rShutter::getLastChange()
 
 uint32_t rShutter::calcStepTimeout(uint8_t step)
 {
-  uint32_t ret = _step_time;
+  float ret = (float)_step_time;
   if (step > 1) {
     for (uint8_t i = 2; i <= step; i++) {
       ret = ret * _step_time_adj;
     };
   };
-  return ret;
+  return (uint32_t)ret;
 }
 
 // Open the shutter by a specified number of steps
