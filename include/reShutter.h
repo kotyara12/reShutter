@@ -40,14 +40,19 @@ class rShutter {
 
     // Current state
     uint8_t getState();
+    float getPercent();
+
+    // Generate JSON
+    char* getStateJSON(uint8_t state);
+    char* getTimestampsJSON();
     char* getJSON();
 
     bool Init();
     // Open or close the shutter by a specified number of steps
     bool Open(uint8_t steps);
     bool Close(uint8_t steps);
-    // Forced close on initialization or crash
-    bool CloseForced();
+    // Full closure without regard to steps (until the limit switches are activated)
+    bool CloseFull(bool forced);
 
     // For the timer handler
     bool StopAndQueueProcessing();
@@ -77,6 +82,9 @@ class rShutter {
     uint8_t             _queue_open = 0;          // Number of scheduled steps if the timer is active
     uint8_t             _queue_close = 0;         // Number of scheduled steps if the timer is active
     time_t              _changed = 0;             // Time of last state change
+    time_t              _last_open = 0;           // Time of last open
+    time_t              _last_close = 0;          // Time of last close
+    uint8_t             _last_max_state = 0;      // Last maximum opening
     esp_timer_handle_t  _timer = nullptr;         // Step timer
     char*               _mqtt_topic = nullptr;    // MQTT topic
 
