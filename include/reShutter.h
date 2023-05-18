@@ -40,6 +40,7 @@ class rShutter {
 
     // Current state
     uint8_t getState();
+    time_t getLastChange();
     float getPercent();
     bool isFullOpen();
     bool isFullClose();
@@ -52,8 +53,8 @@ class rShutter {
     bool Init();
     // Open or close the shutter by a specified number of steps
     bool Open(uint8_t steps);
+    bool OpenFull();
     bool Close(uint8_t steps);
-    // Full closure without regard to steps (until the limit switches are activated)
     bool CloseFull(bool forced);
 
     // For the timer handler

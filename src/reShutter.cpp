@@ -107,6 +107,11 @@ bool rShutter::isFullClose()
   return _state == 0;
 }
 
+time_t rShutter::getLastChange()
+{
+  return _last_changed;
+}
+
 uint32_t rShutter::calcStepTimeout(uint8_t step)
 {
   uint32_t ret = _step_time;
@@ -195,6 +200,14 @@ bool rShutter::Close(uint8_t steps)
       };
       rlog_e(logTAG, "Failed to activate shutter");
     };
+  };
+  return false;
+}
+
+bool rShutter::OpenFull()
+{
+  if (_state < _max_steps) {
+    return Open(_max_steps - _state);
   };
   return false;
 }
