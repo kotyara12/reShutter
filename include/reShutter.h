@@ -52,9 +52,9 @@ class rShutter {
 
     bool Init();
     // Open or close the shutter by a specified number of steps
-    bool Open(uint8_t steps);
-    bool OpenFull();
-    bool Close(uint8_t steps);
+    bool Open(uint8_t steps, bool enqueue);
+    bool OpenFull(bool enqueue);
+    bool Close(uint8_t steps, bool enqueue);
     bool CloseFull(bool forced);
 
     // For the timer handler

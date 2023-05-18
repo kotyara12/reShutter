@@ -75,9 +75,9 @@ bool rShutter::StopAndQueueProcessing()
   bool ret = StopAll();
   if (ret) {
     if (_queue_open > 0) {
-      ret = Open(_queue_open);
+      ret = Open(_queue_open, false);
     } else if (_queue_close > 0) {
-      ret = Close(_queue_close);
+      ret = Close(_queue_close, false);
     };
     _queue_open = 0;
     _queue_close = 0;
@@ -124,7 +124,7 @@ uint32_t rShutter::calcStepTimeout(uint8_t step)
 }
 
 // Open the shutter by a specified number of steps
-bool rShutter::Open(uint8_t steps)
+bool rShutter::Open(uint8_t steps, bool enqueue)
 {
   uint8_t _steps = steps;
   if (_steps + _state > _max_steps) {
@@ -133,8 +133,12 @@ bool rShutter::Open(uint8_t steps)
   };
   if (_steps > 0) {
     if (timerIsActive()) {
-      _queue_open += _steps;
-      rlog_w(logTAG, "An operation is currently in progress, the requested steps are queued");
+      if (enqueue) {
+        _queue_open += _steps;
+        rlog_w(logTAG, "Drive busy, requested steps queued");
+      } else {
+        rlog_w(logTAG, "Drive busy, operation canceled");
+      };
     } else {
       // Calculate time
       uint32_t _duration = 0;
@@ -165,7 +169,7 @@ bool rShutter::Open(uint8_t steps)
 }
 
 // Close the shutter by a specified number of steps
-bool rShutter::Close(uint8_t steps)
+bool rShutter::Close(uint8_t steps, bool enqueue)
 {
   uint8_t _steps = steps;
   if (_steps > _state) {
@@ -174,8 +178,12 @@ bool rShutter::Close(uint8_t steps)
   };
   if (_steps > 0) {
     if (timerIsActive()) {
-      _queue_close += _steps;
-      rlog_w(logTAG, "An operation is currently in progress, the requested steps are queued");
+      if (enqueue) {
+        _queue_close += _steps;
+        rlog_w(logTAG, "Drive busy, requested steps queued");
+      } else {
+        rlog_w(logTAG, "Drive busy, operation canceled");
+      };
     } else {
       // Calculate time
       uint32_t _duration = 0;
@@ -204,10 +212,10 @@ bool rShutter::Close(uint8_t steps)
   return false;
 }
 
-bool rShutter::OpenFull()
+bool rShutter::OpenFull(bool enqueue)
 {
   if (_state < _max_steps) {
-    return Open(_max_steps - _state);
+    return Open(_max_steps - _state, enqueue);
   };
   return false;
 }
