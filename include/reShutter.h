@@ -56,6 +56,7 @@ class rShutter {
     bool OpenFull(bool enqueue);
     bool Close(uint8_t steps, bool enqueue);
     bool CloseFull(bool forced);
+    bool OperationInProgress();
 
     // For the timer handler
     bool StopAndQueueProcessing();
