@@ -26,6 +26,8 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _level_close = level_close;
   _full_time = full_time;
   _max_steps = max_steps;
+  _limit_min = 0;
+  _limit_max = _max_steps;
   _step_time = step_time;
   _step_time_adj = step_time_adj;
   _step_time_fin = step_time_fin;
@@ -39,8 +41,6 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _last_max_state = 0;
   _mqtt_topic = nullptr;
   _timer = nullptr;
-
-  timerCreate();
 }
 
 rShutter::~rShutter()
@@ -60,7 +60,7 @@ bool rShutter::Init()
   _last_open = 0;
   _last_close = 0;
   _last_max_state = 0;
-  return gpioInit() && StopAll() && CloseFull(true);
+  return gpioInit() && timerCreate() && StopAll() && CloseFull(true);
 }
 
 // Disable all drives
@@ -92,6 +92,11 @@ uint8_t rShutter::getState()
   return _state;
 }
 
+uint8_t rShutter::getMaxSteps()
+{
+  return _max_steps;
+}
+
 float rShutter::getPercent()
 {
   return (float)_state / _max_steps * 100.0;
@@ -99,12 +104,20 @@ float rShutter::getPercent()
 
 bool rShutter::isFullOpen()
 {
-  return _state >= _max_steps;
+  if (_limit_max < _max_steps) {
+    return _state >= _limit_max;
+  } else {
+    return _state >= _max_steps;
+  };
 }
 
 bool rShutter::isFullClose()
 {
-  return _state == 0;
+  if (_limit_min > 0) {
+    return _state <= _limit_min;
+  } else {
+    return _state == 0;
+  };
 }
 
 time_t rShutter::getLastChange()
@@ -124,17 +137,12 @@ uint32_t rShutter::calcStepTimeout(uint8_t step)
 }
 
 // Open the shutter by a specified number of steps
-bool rShutter::Open(uint8_t steps, bool enqueue)
+bool rShutter::OpenPriv(uint8_t steps, bool enqueue)
 {
-  uint8_t _steps = steps;
-  if (_steps + _state > _max_steps) {
-    _steps = _max_steps - _state;
-    rlog_w(logTAG, "Requested %d steps, actually %d steps will be completed", steps, _steps);
-  };
-  if (_steps > 0) {
+  if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        _queue_open += _steps;
+        _queue_open += steps;
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -142,23 +150,23 @@ bool rShutter::Open(uint8_t steps, bool enqueue)
     } else {
       // Calculate time
       uint32_t _duration = 0;
-      for (uint8_t i = 1; i <= _steps; i++) {
+      for (uint8_t i = 1; i <= steps; i++) {
         _duration += calcStepTimeout(_state + i);
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_open, _level_open, _duration)) {
-        rlog_i(logTAG, "Open shutter %d steps ( %d milliseconds )", _steps, _duration);
+        rlog_i(logTAG, "Open shutter %d steps ( %d milliseconds )", steps, _duration);
         _last_changed = time(nullptr);
         if (_state == 0) {
           _last_max_state = 0;
           _last_open = time(nullptr);
         };
-        _state += _steps;
+        _state += steps;
         if (_state > _last_max_state) {
           _last_max_state = _state;
         };
         if (_on_changed) {
-          _on_changed(this, _state - _steps, _state, _max_steps);
+          _on_changed(this, _state - steps, _state, _max_steps);
         };
         return true;
       };
@@ -169,17 +177,12 @@ bool rShutter::Open(uint8_t steps, bool enqueue)
 }
 
 // Close the shutter by a specified number of steps
-bool rShutter::Close(uint8_t steps, bool enqueue)
+bool rShutter::ClosePriv(uint8_t steps, bool enqueue)
 {
-  uint8_t _steps = steps;
-  if (_steps > _state) {
-    _steps = _state;
-    rlog_w(logTAG, "Requested %d steps, actually %d steps will be completed", steps, _steps);
-  };
-  if (_steps > 0) {
+  if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        _queue_close += _steps;
+        _queue_close += steps;
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -187,7 +190,7 @@ bool rShutter::Close(uint8_t steps, bool enqueue)
     } else {
       // Calculate time
       uint32_t _duration = 0;
-      for (uint8_t i = _steps; i > 0 ; i--) {
+      for (uint8_t i = steps; i > 0 ; i--) {
         _duration += calcStepTimeout(_state - i + 1);
         if (_state - i == 0) {
           _duration += _step_time_fin;
@@ -195,14 +198,14 @@ bool rShutter::Close(uint8_t steps, bool enqueue)
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_close, _level_close, _duration)) {
-        rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", _steps, _duration);
+        rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", steps, _duration);
         _last_changed = time(nullptr);
-        _state -= _steps;
+        _state -= steps;
         if (_state == 0) {
           _last_close = time(nullptr);
         };
         if (_on_changed) {
-          _on_changed(this, _state + _steps, _state, _max_steps);
+          _on_changed(this, _state + steps, _state, _max_steps);
         };
         return true;
       };
@@ -211,6 +214,29 @@ bool rShutter::Close(uint8_t steps, bool enqueue)
   };
   return false;
 }
+
+bool rShutter::Open(uint8_t steps, bool enqueue)
+{
+  int8_t _steps = checkLimits(steps);
+  if (_steps > 0) {
+    return OpenPriv(_steps, enqueue);
+  } else if (_steps < 0) {
+    return ClosePriv(-_steps, enqueue);
+  };
+  return false;
+}
+
+bool rShutter::Close(uint8_t steps, bool enqueue)
+{
+  int8_t _steps = checkLimits(-steps);
+  if (_steps < 0) {
+    return ClosePriv(-_steps, enqueue);
+  } else if (_steps > 0) {
+    return OpenPriv(_steps, enqueue);
+  };
+  return false;
+}
+
 
 bool rShutter::OpenFull(bool enqueue)
 {
@@ -223,17 +249,21 @@ bool rShutter::OpenFull(bool enqueue)
 // Full closure without regard to steps (until the limit switches are activated)
 bool rShutter::CloseFull(bool forced)
 {
-  if ((_state > 0) || forced) {
-    timerStop();
-    if (timerActivate(_pin_close, _level_close, _full_time)) {
-      rlog_i(logTAG, "Сlose shutter completely");
-      _last_changed = time(nullptr);
-      _last_close = time(nullptr);
-      if (_on_changed) {
-        _on_changed(this, _state, 0, _max_steps);
+  if ((_state > _limit_min) || forced) {
+    if (_limit_min == 0) {
+      timerStop();
+      if (timerActivate(_pin_close, _level_close, _full_time)) {
+        rlog_i(logTAG, "Сlose shutter completely");
+        _last_changed = time(nullptr);
+        _last_close = time(nullptr);
+        if (_on_changed) {
+          _on_changed(this, _state, _limit_min, _max_steps);
+        };
+        _state = 0;
+        return true;
       };
-      _state = 0;
-      return true;
+    } else {
+      Close(_state - _limit_min, true);
     };
   };
   return false;
@@ -242,6 +272,65 @@ bool rShutter::CloseFull(bool forced)
 bool rShutter::OperationInProgress()
 {
   return timerIsActive();
+}
+
+int8_t rShutter::checkLimits(int8_t steps)
+{
+  int8_t ret = steps;
+  // Checking permanent limits
+  if ((_state + ret) < 0) {
+    ret = - _state;
+  };
+  if ((_state + ret) > _max_steps) {
+    ret = _max_steps - _state;
+  };
+  // Checking non-permanent limits
+  if ((_state + ret) < _limit_min) {
+    ret = _limit_min - _state;
+  };
+  if ((_state + ret) > _limit_max) {
+    ret = _limit_max - _state;
+  };
+  if (steps != ret) {
+    rlog_w(logTAG, "Requested %d steps, actually %d steps will be completed", steps, ret);
+  };
+  return ret;
+}
+
+bool rShutter::setMinLimit(uint8_t limit)
+{
+  if (limit != _limit_min) {
+    _limit_min = limit;
+    if (_state < _limit_min) {
+      return Open(_limit_min - _state, true);
+    };
+  };
+  return false;
+}
+
+bool rShutter::setMaxLimit(uint8_t limit)
+{
+  if (limit != _limit_max) {
+    if (limit <= _max_steps) {
+      _limit_max = limit;
+    } else {
+      _limit_max = _max_steps;
+    };
+    if (_state > _limit_max) {
+      return Close(_state - _limit_max, true);
+    };
+  };
+  return false;
+}
+
+bool rShutter::clearMinLimit()
+{
+  return setMinLimit(0);
+}
+
+bool rShutter::clearMaxLimit()
+{
+  return setMaxLimit(_max_steps);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------

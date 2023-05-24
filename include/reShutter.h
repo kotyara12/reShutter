@@ -40,6 +40,7 @@ class rShutter {
 
     // Current state
     uint8_t getState();
+    uint8_t getMaxSteps();
     time_t getLastChange();
     float getPercent();
     bool isFullOpen();
@@ -57,6 +58,13 @@ class rShutter {
     bool Close(uint8_t steps, bool enqueue);
     bool CloseFull(bool forced);
     bool OperationInProgress();
+
+    // Limits
+    int8_t checkLimits(int8_t steps);
+    bool setMinLimit(uint8_t limit);
+    bool setMaxLimit(uint8_t limit);
+    bool clearMinLimit();
+    bool clearMaxLimit();
 
     // For the timer handler
     bool StopAndQueueProcessing();
@@ -83,6 +91,8 @@ class rShutter {
     float               _step_time_adj = 1.00;    // Delay adjustment factor for each next step
     uint32_t            _step_time_fin = 0;       // Finishing time
     uint8_t             _state = 0;               // Current state
+    uint8_t             _limit_min = 0;           // Minimum opening limit
+    uint8_t             _limit_max = 255;         // Maximum opening limit
     uint8_t             _queue_open = 0;          // Number of scheduled steps if the timer is active
     uint8_t             _queue_close = 0;         // Number of scheduled steps if the timer is active
     time_t              _last_changed = 0;        // Time of last state change
@@ -96,6 +106,8 @@ class rShutter {
     cb_shutter_publish_t _mqtt_publish = nullptr; // Pointer to the publish callback function
 
     uint32_t calcStepTimeout(uint8_t step);
+    bool OpenPriv(uint8_t steps, bool enqueue);
+    bool ClosePriv(uint8_t steps, bool enqueue);
 
     // Disable all drives
     bool StopAll();
