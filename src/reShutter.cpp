@@ -92,6 +92,11 @@ uint8_t rShutter::getState()
   return _state;
 }
 
+uint8_t rShutter::getStateEnqueued()
+{
+  return _state + _queue_open - _queue_close;
+}
+
 uint8_t rShutter::getMaxSteps()
 {
   return _max_steps;

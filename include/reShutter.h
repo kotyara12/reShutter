@@ -40,6 +40,7 @@ class rShutter {
 
     // Current state
     uint8_t getState();
+    uint8_t getStateEnqueued();
     uint8_t getMaxSteps();
     time_t getLastChange();
     float getPercent();
