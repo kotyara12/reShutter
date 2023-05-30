@@ -18,7 +18,7 @@ static const char* logTAG = "SHTR";
 
 rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
-  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 {
   _pin_open = pin_open;
   _level_open = level_open;
@@ -32,6 +32,8 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _step_time_adj = step_time_adj;
   _step_time_fin = step_time_fin;
   _on_changed = cb_state_changed;
+  _on_before = cb_gpio_before;
+  _on_after = cb_gpio_after;
   _mqtt_publish = cb_mqtt_publish;
 
   _state = 0;
@@ -63,10 +65,18 @@ bool rShutter::Init()
   return gpioInit() && timerCreate() && StopAll() && CloseFull(true);
 }
 
+bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
+{
+  if (_on_before) _on_before(this, pin);
+  bool ret = gpioSetLevel(pin, physical_level);
+  if (_on_after) _on_after(this, pin);
+  return ret;
+}
+
 // Disable all drives
 bool rShutter::StopAll()
 {
-  return gpioSetLevel(_pin_open, !_level_open) && gpioSetLevel(_pin_close, !_level_close);
+  return gpioSetLevelPriv(_pin_open, !_level_open) && gpioSetLevelPriv(_pin_close, !_level_close);
 }
 
 // At the end of the timer, we execute the next steps, if any
@@ -147,7 +157,14 @@ bool rShutter::OpenPriv(uint8_t steps, bool enqueue)
   if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        _queue_open += steps;
+        if (_queue_close > steps) {
+          _queue_close = _queue_close - steps;
+        } else if (_queue_close > 0) {
+          _queue_open = _queue_open + (steps - _queue_close);
+          _queue_close = 0;  
+        } else {
+          _queue_open = _queue_open + steps;
+        };
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -187,7 +204,14 @@ bool rShutter::ClosePriv(uint8_t steps, bool enqueue)
   if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        _queue_close += steps;
+        if (_queue_open > steps) {
+          _queue_open = _queue_open - steps;
+        } else if (_queue_open > 0) {
+          _queue_close = _queue_close + (steps - _queue_open);
+          _queue_open = 0;  
+        } else {
+          _queue_close = _queue_close + steps;
+        };
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -233,7 +257,7 @@ bool rShutter::Open(uint8_t steps, bool enqueue)
 
 bool rShutter::Close(uint8_t steps, bool enqueue)
 {
-  int8_t _steps = checkLimits(-steps);
+  int8_t _steps = checkLimits(-(int8_t)steps);
   if (_steps < 0) {
     return ClosePriv(-_steps, enqueue);
   } else if (_steps > 0) {
@@ -379,7 +403,7 @@ bool rShutter::timerActivate(uint8_t pin, bool level, uint32_t duration_ms)
   };
   if (_timer != nullptr) {
     RE_OK_CHECK(esp_timer_start_once(_timer, duration_ms*1000), return false);
-    if (gpioSetLevel(pin, level)) {
+    if (gpioSetLevelPriv(pin, level)) {
       return true;
     } else {
       timerStop();
@@ -487,10 +511,10 @@ char* rShutter::getJSON()
 
 rGpioShutter::rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
-  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
   max_steps, full_time, step_time, step_time_adj, step_time_fin,
-  cb_state_changed, cb_mqtt_publish)
+  cb_gpio_before, cb_gpio_after, cb_state_changed, cb_mqtt_publish)
 {
 }
 
@@ -517,10 +541,10 @@ bool rGpioShutter::gpioSetLevel(uint8_t pin, bool physical_level)
 rIoExpShutter::rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
   cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
-  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
   max_steps, full_time, step_time, step_time_adj, step_time_fin,
-  cb_state_changed, cb_mqtt_publish)
+  cb_gpio_before, cb_gpio_after, cb_state_changed, cb_mqtt_publish)
 {
   _gpio_init = cb_gpio_init;
   _gpio_change = cb_gpio_change;
