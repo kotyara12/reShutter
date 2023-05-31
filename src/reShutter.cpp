@@ -84,13 +84,12 @@ bool rShutter::StopAndQueueProcessing()
 {
   bool ret = StopAll();
   if (ret) {
-    if (_queue_open > 0) {
-      ret = Open(_queue_open, false);
-    } else if (_queue_close > 0) {
-      ret = Close(_queue_close, false);
+    if (_queue > 0) {
+      ret = Open((uint8_t)_queue, false);
+    } else if (_queue < 0) {
+      ret = Close((uint8_t)(-_queue), false);
     };
-    _queue_open = 0;
-    _queue_close = 0;
+    if (ret) _queue = 0;
   };
   return ret;
 }
@@ -104,7 +103,7 @@ uint8_t rShutter::getState()
 
 uint8_t rShutter::getStateEnqueued()
 {
-  return _state + _queue_open - _queue_close;
+  return _state + _queue;
 }
 
 uint8_t rShutter::getMaxSteps()
@@ -157,14 +156,7 @@ bool rShutter::OpenPriv(uint8_t steps, bool enqueue)
   if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        if (_queue_close > steps) {
-          _queue_close = _queue_close - steps;
-        } else if (_queue_close > 0) {
-          _queue_open = _queue_open + (steps - _queue_close);
-          _queue_close = 0;  
-        } else {
-          _queue_open = _queue_open + steps;
-        };
+        _queue = _queue + steps;
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -204,14 +196,7 @@ bool rShutter::ClosePriv(uint8_t steps, bool enqueue)
   if (steps > 0) {
     if (timerIsActive()) {
       if (enqueue) {
-        if (_queue_open > steps) {
-          _queue_open = _queue_open - steps;
-        } else if (_queue_open > 0) {
-          _queue_close = _queue_close + (steps - _queue_open);
-          _queue_open = 0;  
-        } else {
-          _queue_close = _queue_close + steps;
-        };
+       _queue = _queue - steps;
         rlog_w(logTAG, "Drive busy, requested steps queued");
       } else {
         rlog_w(logTAG, "Drive busy, operation canceled");
@@ -246,22 +231,22 @@ bool rShutter::ClosePriv(uint8_t steps, bool enqueue)
 
 bool rShutter::Open(uint8_t steps, bool enqueue)
 {
-  int8_t _steps = checkLimits(steps);
+  int8_t _steps = checkLimits((int8_t)steps, true);
   if (_steps > 0) {
-    return OpenPriv(_steps, enqueue);
+    return OpenPriv((uint8_t)_steps, enqueue);
   } else if (_steps < 0) {
-    return ClosePriv(-_steps, enqueue);
+    return ClosePriv((uint8_t)(-_steps), enqueue);
   };
   return false;
 }
 
 bool rShutter::Close(uint8_t steps, bool enqueue)
 {
-  int8_t _steps = checkLimits(-(int8_t)steps);
+  int8_t _steps = checkLimits(-(int8_t)steps, true);
   if (_steps < 0) {
-    return ClosePriv(-_steps, enqueue);
+    return ClosePriv((uint8_t)(-_steps), enqueue);
   } else if (_steps > 0) {
-    return OpenPriv(_steps, enqueue);
+    return OpenPriv((uint8_t)_steps, enqueue);
   };
   return false;
 }
@@ -303,22 +288,23 @@ bool rShutter::OperationInProgress()
   return timerIsActive();
 }
 
-int8_t rShutter::checkLimits(int8_t steps)
+int8_t rShutter::checkLimits(int8_t steps, bool use_queue)
 {
   int8_t ret = steps;
+  int8_t buf = use_queue ? _state + _queue: _state;
   // Checking permanent limits
-  if ((_state + ret) < 0) {
-    ret = - _state;
+  if ((buf + ret) < 0) {
+    ret = - buf;
   };
-  if ((_state + ret) > _max_steps) {
-    ret = _max_steps - _state;
+  if ((buf + ret) > _max_steps) {
+    ret = _max_steps - buf;
   };
   // Checking non-permanent limits
-  if ((_state + ret) < _limit_min) {
-    ret = _limit_min - _state;
+  if ((buf + ret) < _limit_min) {
+    ret = _limit_min - buf;
   };
-  if ((_state + ret) > _limit_max) {
-    ret = _limit_max - _state;
+  if ((buf + ret) > _limit_max) {
+    ret = _limit_max - buf;
   };
   if (steps != ret) {
     rlog_w(logTAG, "Requested %d steps, actually %d steps will be completed", steps, ret);
@@ -330,8 +316,8 @@ bool rShutter::setMinLimit(uint8_t limit)
 {
   if (limit != _limit_min) {
     _limit_min = limit;
-    if (_state < _limit_min) {
-      return Open(_limit_min - _state, true);
+    if ((_state + _queue) < _limit_min) {
+      return Open(_limit_min - (_state + _queue), true);
     };
   };
   return false;
@@ -345,8 +331,8 @@ bool rShutter::setMaxLimit(uint8_t limit)
     } else {
       _limit_max = _max_steps;
     };
-    if (_state > _limit_max) {
-      return Close(_state - _limit_max, true);
+    if ((_state + _queue) > _limit_max) {
+      return Close((_state + _queue) - _limit_max, true);
     };
   };
   return false;

@@ -62,7 +62,7 @@ class rShutter {
     bool OperationInProgress();
 
     // Limits
-    int8_t checkLimits(int8_t steps);
+    int8_t checkLimits(int8_t steps, bool use_queue);
     bool setMinLimit(uint8_t limit);
     bool setMaxLimit(uint8_t limit);
     bool clearMinLimit();
@@ -93,10 +93,9 @@ class rShutter {
     float                 _step_time_adj = 1.00;    // Delay adjustment factor for each next step
     uint32_t              _step_time_fin = 0;       // Finishing time
     uint8_t               _state = 0;               // Current state
+    int8_t                _queue = 0;               // Number of scheduled steps if the timer is active
     uint8_t               _limit_min = 0;           // Minimum opening limit
     uint8_t               _limit_max = 255;         // Maximum opening limit
-    uint8_t               _queue_open = 0;          // Number of scheduled steps if the timer is active
-    uint8_t               _queue_close = 0;         // Number of scheduled steps if the timer is active
     time_t                _last_changed = 0;        // Time of last state change
     time_t                _last_open = 0;           // Time of last open
     time_t                _last_close = 0;          // Time of last close
