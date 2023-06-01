@@ -18,7 +18,8 @@ static const char* logTAG = "SHTR";
 
 rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
-  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
+  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 {
   _pin_open = pin_open;
   _level_open = level_open;
@@ -31,9 +32,10 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _step_time = step_time;
   _step_time_adj = step_time_adj;
   _step_time_fin = step_time_fin;
-  _on_changed = cb_state_changed;
   _on_before = cb_gpio_before;
   _on_after = cb_gpio_after;
+  _on_timer = cb_timer;
+  _on_changed = cb_state_changed;
   _mqtt_publish = cb_mqtt_publish;
 
   _state = 0;
@@ -62,21 +64,46 @@ bool rShutter::Init()
   _last_open = 0;
   _last_close = 0;
   _last_max_state = 0;
+  _pin_open_state = 0;
+  _pin_close_state = 0;
   return gpioInit() && timerCreate() && StopAll() && CloseFull(true);
 }
 
 bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
 {
+  if (physical_level) {
+    if (pin == _pin_open) {
+      _pin_open_state = true;
+    } else if (pin == _pin_close) {
+      _pin_close_state = true;
+    };
+    if (_on_timer) _on_timer(this, pin, true);
+  };
   if (_on_before) _on_before(this, pin);
   bool ret = gpioSetLevel(pin, physical_level);
   if (_on_after) _on_after(this, pin);
+  if (ret && !physical_level) {
+    if (pin == _pin_open) {
+      _pin_open_state = false;
+    } else if (pin == _pin_close) {
+      _pin_close_state = false;
+    };
+    if (_on_timer) _on_timer(this, pin, false);
+  };
   return ret;
 }
 
 // Disable all drives
 bool rShutter::StopAll()
 {
-  return gpioSetLevelPriv(_pin_open, !_level_open) && gpioSetLevelPriv(_pin_close, !_level_close);
+  bool ret = true;
+  if (_pin_open_state) {
+    ret = gpioSetLevelPriv(_pin_open, !_level_open);
+  };
+  if (ret && _pin_close_state) {
+    ret = gpioSetLevelPriv(_pin_close, !_level_close);
+  };
+  return ret;
 }
 
 // At the end of the timer, we execute the next steps, if any
@@ -497,10 +524,11 @@ char* rShutter::getJSON()
 
 rGpioShutter::rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
-  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
+  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
   max_steps, full_time, step_time, step_time_adj, step_time_fin,
-  cb_gpio_before, cb_gpio_after, cb_state_changed, cb_mqtt_publish)
+  cb_gpio_before, cb_gpio_after, cb_timer, cb_state_changed, cb_mqtt_publish)
 {
 }
 
@@ -527,10 +555,11 @@ bool rGpioShutter::gpioSetLevel(uint8_t pin, bool physical_level)
 rIoExpShutter::rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
   uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
   cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
-  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
+  cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
+  cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
   max_steps, full_time, step_time, step_time_adj, step_time_fin,
-  cb_gpio_before, cb_gpio_after, cb_state_changed, cb_mqtt_publish)
+  cb_gpio_before, cb_gpio_after, cb_timer, cb_state_changed, cb_mqtt_publish)
 {
   _gpio_init = cb_gpio_init;
   _gpio_change = cb_gpio_change;
