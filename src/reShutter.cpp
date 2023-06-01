@@ -434,11 +434,10 @@ bool rShutter::timerStop()
 {
   if (_timer != nullptr) {
     if (esp_timer_is_active(_timer)) {
-      StopAll();
       RE_OK_CHECK(esp_timer_stop(_timer), return false);
     };
   };
-  return true;
+  return StopAll();
 }
 
 // -----------------------------------------------------------------------------------------------------------------------
