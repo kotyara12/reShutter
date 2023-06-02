@@ -43,7 +43,6 @@ class rShutter {
 
     // Current state
     uint8_t getState();
-    uint8_t getStateEnqueued();
     uint8_t getMaxSteps();
     time_t getLastChange();
     float getPercent();
@@ -56,22 +55,21 @@ class rShutter {
     char* getJSON();
 
     bool Init();
+
     // Open or close the shutter by a specified number of steps
-    bool Open(uint8_t steps, bool enqueue);
-    bool OpenFull(bool enqueue);
-    bool Close(uint8_t steps, bool enqueue);
+    bool Open(uint8_t steps);
+    bool OpenFull();
+    bool Close(uint8_t steps);
     bool CloseFull(bool forced);
-    bool OperationInProgress();
+    bool isBusy();
+    bool Break();
 
     // Limits
-    int8_t checkLimits(int8_t steps, bool use_queue);
+    int8_t checkLimits(int8_t steps);
     bool setMinLimit(uint8_t limit);
     bool setMaxLimit(uint8_t limit);
     bool clearMinLimit();
     bool clearMaxLimit();
-
-    // For the timer handler
-    bool StopAndQueueProcessing();
 
     // MQTT
     void mqttSetCallback(cb_shutter_publish_t cb_publish);
@@ -80,6 +78,9 @@ class rShutter {
     bool mqttTopicCreate(bool primary, bool local, const char* topic1, const char* topic2, const char* topic3);
     void mqttTopicFree();
     bool mqttPublish();
+
+    // !!! Only for the timer callback function! Don't use it directly
+    bool StopAll();
   protected:
     uint8_t     _pin_open = 0;                    // Pin number to open
     bool        _level_open = true;               // Logic level to open
@@ -97,7 +98,6 @@ class rShutter {
     uint8_t               _state = 0;               // Current state
     uint8_t               _pin_open_state = 0;      // Current state of open GPIO
     uint8_t               _pin_close_state = 0;     // Current state of close GPIO
-    int8_t                _queue = 0;               // Number of scheduled steps if the timer is active
     uint8_t               _limit_min = 0;           // Minimum opening limit
     uint8_t               _limit_max = 255;         // Maximum opening limit
     time_t                _last_changed = 0;        // Time of last state change
@@ -115,11 +115,8 @@ class rShutter {
 
     uint32_t calcStepTimeout(uint8_t step);
     bool gpioSetLevelPriv(uint8_t pin, bool physical_level);
-    bool OpenPriv(uint8_t steps, bool enqueue);
-    bool ClosePriv(uint8_t steps, bool enqueue);
-
-    // Disable all drives
-    bool StopAll();
+    bool OpenPriv(uint8_t steps);
+    bool ClosePriv(uint8_t steps);
 
     // Timer
     bool timerCreate();
