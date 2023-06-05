@@ -60,6 +60,7 @@ class rShutter {
     bool Open(uint8_t steps);
     bool OpenFull();
     bool Close(uint8_t steps);
+    bool CloseFullEx(bool forced, bool call_cb);
     bool CloseFull(bool forced);
     bool isBusy();
     bool Break();

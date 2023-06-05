@@ -259,7 +259,7 @@ bool rShutter::OpenFull()
 }
 
 // Full closure without regard to steps (until the limit switches are activated)
-bool rShutter::CloseFull(bool forced)
+bool rShutter::CloseFullEx(bool forced, bool call_cb)
 {
   if ((_state > _limit_min) || forced) {
     if (_limit_min == 0) {
@@ -268,7 +268,7 @@ bool rShutter::CloseFull(bool forced)
         rlog_i(logTAG, "Сlose shutter completely");
         _last_changed = time(nullptr);
         _last_close = time(nullptr);
-        if (_on_changed) {
+        if (call_cb && _on_changed) {
           _on_changed(this, _state, _limit_min, _max_steps);
         };
         _state = 0;
@@ -279,6 +279,11 @@ bool rShutter::CloseFull(bool forced)
     };
   };
   return false;
+}
+
+bool rShutter::CloseFull(bool forced)
+{
+  return CloseFullEx(forced, true);
 }
 
 bool rShutter::isBusy()
