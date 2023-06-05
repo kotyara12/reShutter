@@ -68,7 +68,7 @@ bool rShutter::Init()
   _last_max_state = 0;
   _pin_open_state = 0;
   _pin_close_state = 0;
-  return gpioInit() && timerCreate() && StopAll() && CloseFull(true);
+  return gpioInit() && timerCreate() && StopAll();
 }
 
 bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
