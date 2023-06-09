@@ -57,20 +57,20 @@ class rShutter {
     bool Init();
 
     // Open or close the shutter by a specified number of steps
-    bool Open(uint8_t steps);
-    bool OpenFull();
-    bool Close(uint8_t steps);
-    bool CloseFullEx(bool forced, bool call_cb);
-    bool CloseFull(bool forced);
+    bool Open(uint8_t steps, bool publish);
+    bool OpenFull(bool publish);
+    bool Close(uint8_t steps, bool publish);
+    bool CloseFullEx(bool forced, bool call_cb, bool publish);
+    bool CloseFull(bool forced, bool publish);
     bool isBusy();
     bool Break();
 
     // Limits
     int8_t checkLimits(int8_t steps);
-    bool setMinLimit(uint8_t limit);
-    bool setMaxLimit(uint8_t limit);
-    bool clearMinLimit();
-    bool clearMaxLimit();
+    bool setMinLimit(uint8_t limit, bool publish);
+    bool setMaxLimit(uint8_t limit, bool publish);
+    bool clearMinLimit(bool publish);
+    bool clearMaxLimit(bool publish);
 
     // MQTT
     void mqttSetCallback(cb_shutter_publish_t cb_publish);
@@ -116,8 +116,8 @@ class rShutter {
 
     uint32_t calcStepTimeout(uint8_t step);
     bool gpioSetLevelPriv(uint8_t pin, bool physical_level);
-    bool OpenPriv(uint8_t steps);
-    bool ClosePriv(uint8_t steps);
+    bool OpenPriv(uint8_t steps, bool publish);
+    bool ClosePriv(uint8_t steps, bool publish);
 
     // Timer
     bool timerCreate();

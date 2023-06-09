@@ -159,7 +159,7 @@ uint32_t rShutter::calcStepTimeout(uint8_t step)
 }
 
 // Open the shutter by a specified number of steps
-bool rShutter::OpenPriv(uint8_t steps)
+bool rShutter::OpenPriv(uint8_t steps, bool publish)
 {
   if (steps > 0) {
     if (timerIsActive()) {
@@ -185,6 +185,9 @@ bool rShutter::OpenPriv(uint8_t steps)
         if (_on_changed) {
           _on_changed(this, _state - steps, _state, _max_steps);
         };
+        if (publish) {
+          mqttPublish();
+        };
         return true;
       };
       rlog_e(logTAG, "Failed to activate shutter");
@@ -194,7 +197,7 @@ bool rShutter::OpenPriv(uint8_t steps)
 }
 
 // Close the shutter by a specified number of steps
-bool rShutter::ClosePriv(uint8_t steps)
+bool rShutter::ClosePriv(uint8_t steps, bool publish)
 {
   if (steps > 0) {
     if (timerIsActive()) {
@@ -219,6 +222,9 @@ bool rShutter::ClosePriv(uint8_t steps)
         if (_on_changed) {
           _on_changed(this, _state + steps, _state, _max_steps);
         };
+        if (publish) {
+          mqttPublish();
+        };
         return true;
       };
       rlog_e(logTAG, "Failed to activate shutter");
@@ -227,39 +233,39 @@ bool rShutter::ClosePriv(uint8_t steps)
   return false;
 }
 
-bool rShutter::Open(uint8_t steps)
+bool rShutter::Open(uint8_t steps, bool publish)
 {
   int8_t _steps = checkLimits((int8_t)steps);
   if (_steps > 0) {
-    return OpenPriv((uint8_t)_steps);
+    return OpenPriv((uint8_t)_steps, publish);
   } else if (_steps < 0) {
-    return ClosePriv((uint8_t)(-_steps));
+    return ClosePriv((uint8_t)(-_steps), publish);
   };
   return false;
 }
 
-bool rShutter::Close(uint8_t steps)
+bool rShutter::Close(uint8_t steps, bool publish)
 {
   int8_t _steps = checkLimits(-(int8_t)steps);
   if (_steps < 0) {
-    return ClosePriv((uint8_t)(-_steps));
+    return ClosePriv((uint8_t)(-_steps), publish);
   } else if (_steps > 0) {
-    return OpenPriv((uint8_t)_steps);
+    return OpenPriv((uint8_t)_steps, publish);
   };
   return false;
 }
 
 
-bool rShutter::OpenFull()
+bool rShutter::OpenFull(bool publish)
 {
   if (_state < _max_steps) {
-    return Open(_max_steps - _state);
+    return Open(_max_steps - _state, publish);
   };
   return false;
 }
 
 // Full closure without regard to steps (until the limit switches are activated)
-bool rShutter::CloseFullEx(bool forced, bool call_cb)
+bool rShutter::CloseFullEx(bool forced, bool call_cb, bool publish)
 {
   if ((_state > _limit_min) || forced) {
     if (_limit_min == 0) {
@@ -272,18 +278,21 @@ bool rShutter::CloseFullEx(bool forced, bool call_cb)
           _on_changed(this, _state, _limit_min, _max_steps);
         };
         _state = 0;
+        if (publish) {
+          mqttPublish();
+        };
         return true;
       };
     } else {
-      Close(_state - _limit_min);
+      Close(_state - _limit_min, publish);
     };
   };
   return false;
 }
 
-bool rShutter::CloseFull(bool forced)
+bool rShutter::CloseFull(bool forced, bool publish)
 {
-  return CloseFullEx(forced, true);
+  return CloseFullEx(forced, true, publish);
 }
 
 bool rShutter::isBusy()
@@ -322,18 +331,18 @@ int8_t rShutter::checkLimits(int8_t steps)
   return ret;
 }
 
-bool rShutter::setMinLimit(uint8_t limit)
+bool rShutter::setMinLimit(uint8_t limit, bool publish)
 {
   if (limit != _limit_min) {
     _limit_min = limit;
     if (_state < _limit_min) {
-      return Open(_limit_min - _state);
+      return Open(_limit_min - _state, publish);
     };
   };
   return false;
 }
 
-bool rShutter::setMaxLimit(uint8_t limit)
+bool rShutter::setMaxLimit(uint8_t limit, bool publish)
 {
   if (limit != _limit_max) {
     if (limit <= _max_steps) {
@@ -342,20 +351,20 @@ bool rShutter::setMaxLimit(uint8_t limit)
       _limit_max = _max_steps;
     };
     if (_state > _limit_max) {
-      return Close(_state - _limit_max);
+      return Close(_state - _limit_max, publish);
     };
   };
   return false;
 }
 
-bool rShutter::clearMinLimit()
+bool rShutter::clearMinLimit(bool publish)
 {
-  return setMinLimit(0);
+  return setMinLimit(0, publish);
 }
 
-bool rShutter::clearMaxLimit()
+bool rShutter::clearMaxLimit(bool publish)
 {
-  return setMaxLimit(_max_steps);
+  return setMaxLimit(_max_steps, publish);
 }
 
 // -----------------------------------------------------------------------------------------------------------------------
