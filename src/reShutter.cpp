@@ -168,7 +168,7 @@ bool rShutter::OpenPriv(uint8_t steps)
       // Calculate time
       uint32_t _duration = 0;
       for (uint8_t i = 1; i <= steps; i++) {
-        _duration += calcStepTimeout(_state + i);
+        _duration = _duration + calcStepTimeout(_state + i);
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_open, _level_open, _duration)) {
@@ -203,16 +203,16 @@ bool rShutter::ClosePriv(uint8_t steps)
       // Calculate time
       uint32_t _duration = 0;
       for (uint8_t i = steps; i > 0 ; i--) {
-        _duration += calcStepTimeout(_state - i + 1);
+        _duration = _duration + calcStepTimeout(_state - i + 1);
         if (_state - i == 0) {
-          _duration += _step_time_fin;
+          _duration = _duration + _step_time_fin;
         }
       };
       // Turn on the drive for the сalculated time
       if (timerActivate(_pin_close, _level_close, _duration)) {
         rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", steps, _duration);
         _last_changed = time(nullptr);
-        _state -= steps;
+        _state =- steps;
         if (_state == 0) {
           _last_close = time(nullptr);
         };
