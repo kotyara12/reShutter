@@ -36,7 +36,7 @@ typedef bool (*cb_shutter_gpio_change_t) (rShutter *shutter, uint8_t pin, bool p
 class rShutter {
   public:
     rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-      uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+      int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
     ~rShutter();
@@ -57,9 +57,8 @@ class rShutter {
     bool Init();
 
     // Open or close the shutter by a specified number of steps
-    bool Open(uint8_t steps, bool publish);
+    bool Change(int8_t steps, bool publish);
     bool OpenFull(bool publish);
-    bool Close(uint8_t steps, bool publish);
     bool CloseFullEx(bool forced, bool call_cb, bool publish);
     bool CloseFull(bool forced, bool publish);
     bool isBusy();
@@ -92,19 +91,20 @@ class rShutter {
     virtual bool gpioSetLevel(uint8_t pin, bool physical_level) = 0; 
   private:
     uint32_t              _full_time = 15000;       // Full closing time in milliseconds
-    uint8_t               _max_steps = 10;          // Number of steps to fully open
+    int8_t                _min_steps = 0;           // Number of steps to fully closed
+    int8_t                _max_steps = 10;          // Number of steps to fully open
     uint32_t              _step_time = 1000;        // Time delay by one step in milliseconds
     float                 _step_time_adj = 1.00;    // Delay adjustment factor for each next step
     uint32_t              _step_time_fin = 0;       // Finishing time
-    uint8_t               _state = 0;               // Current state
+    int8_t                _state = 0;               // Current state
     uint8_t               _pin_open_state = 0;      // Current state of open GPIO
     uint8_t               _pin_close_state = 0;     // Current state of close GPIO
-    uint8_t               _limit_min = 0;           // Minimum opening limit
-    uint8_t               _limit_max = 255;         // Maximum opening limit
+    int8_t                _limit_min = INT8_MIN;    // Minimum opening limit
+    int8_t                _limit_max = INT8_MAX;    // Maximum opening limit
     time_t                _last_changed = 0;        // Time of last state change
     time_t                _last_open = 0;           // Time of last open
     time_t                _last_close = 0;          // Time of last close
-    uint8_t               _last_max_state = 0;      // Last maximum opening
+    int8_t                _last_max_state = 0;      // Last maximum opening
     esp_timer_handle_t    _timer = nullptr;         // Step timer
     char*                 _mqtt_topic = nullptr;    // MQTT topic
 
@@ -114,10 +114,9 @@ class rShutter {
     cb_shutter_timer_t      _on_timer = nullptr;     // Pointer to the callback function to be called before start timer and after end timer
     cb_shutter_publish_t    _mqtt_publish = nullptr; // Pointer to the publish callback function
 
-    uint32_t calcStepTimeout(uint8_t step);
+    uint32_t calcStepTimeout(int8_t step);
     bool gpioSetLevelPriv(uint8_t pin, bool physical_level);
-    bool OpenPriv(uint8_t steps, bool publish);
-    bool ClosePriv(uint8_t steps, bool publish);
+    bool DoChange(int8_t steps, bool call_cb, bool publish);
 
     // Timer
     bool timerCreate();
@@ -130,7 +129,7 @@ class rShutter {
 class rGpioShutter: public rShutter {
   public:
     rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-      uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+      int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
   protected:
@@ -141,7 +140,7 @@ class rGpioShutter: public rShutter {
 class rIoExpShutter: public rShutter {
   public:
     rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-      uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+      int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);

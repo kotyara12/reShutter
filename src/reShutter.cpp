@@ -19,7 +19,7 @@ static const char* logTAG = "SHTR";
 // -----------------------------------------------------------------------------------------------------------------------
 
 rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-  uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+  int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
   cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
   cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 {
@@ -28,8 +28,9 @@ rShutter::rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool le
   _pin_close = pin_close;
   _level_close = level_close;
   _full_time = full_time;
+  _min_steps = min_steps;
   _max_steps = max_steps;
-  _limit_min = 0;
+  _limit_min = _min_steps;
   _limit_max = _max_steps;
   _step_time = step_time;
   _step_time_adj = step_time_adj;
@@ -135,10 +136,10 @@ bool rShutter::isFullOpen()
 
 bool rShutter::isFullClose()
 {
-  if (_limit_min > 0) {
+  if (_limit_min > _min_steps) {
     return _state <= _limit_min;
   } else {
-    return _state == 0;
+    return _state <= _min_steps;
   };
 }
 
@@ -147,11 +148,11 @@ time_t rShutter::getLastChange()
   return _last_changed;
 }
 
-uint32_t rShutter::calcStepTimeout(uint8_t step)
+uint32_t rShutter::calcStepTimeout(int8_t step)
 {
   float ret = (float)_step_time;
-  if (step > 1) {
-    for (uint8_t i = 2; i <= step; i++) {
+  if (step > (_min_steps + 1)) {
+    for (uint8_t i = _min_steps + 2; i <= step; i++) {
       ret = ret * _step_time_adj;
     };
   };
@@ -159,107 +160,80 @@ uint32_t rShutter::calcStepTimeout(uint8_t step)
 }
 
 // Open the shutter by a specified number of steps
-bool rShutter::OpenPriv(uint8_t steps, bool publish)
+bool rShutter::DoChange(int8_t steps, bool call_cb, bool publish)
 {
-  if (steps > 0) {
+  if (steps != 0) {
     if (timerIsActive()) {
       rlog_w(logTAG, "Drive busy, operation canceled");
     } else {
       // Calculate time
       uint32_t _duration = 0;
-      for (uint8_t i = 1; i <= steps; i++) {
-        _duration = _duration + calcStepTimeout(_state + i);
+      if (steps > 0) {
+        for (int8_t i = 1; i <= steps; i++) {
+          _duration = _duration + calcStepTimeout(_state + i);
+        };
+      } else {
+        for (int8_t i = steps; i < 0 ; i++) {
+          _duration = _duration + calcStepTimeout(_state + i + 1);
+          if (_state + i == _min_steps) {
+            _duration = _duration + _step_time_fin;
+          }
+        };
       };
+
       // Turn on the drive for the сalculated time
-      if (timerActivate(_pin_open, _level_open, _duration)) {
-        rlog_i(logTAG, "Open shutter %d steps ( %d milliseconds )", steps, _duration);
+      bool ret = false;
+      if (steps > 0) {
+        ret = timerActivate(_pin_open, _level_open, _duration);
+        if (ret) {
+          rlog_i(logTAG, "Open shutter %d steps ( %d milliseconds )", steps, _duration);
+        };
+      } else {
+        ret = timerActivate(_pin_close, _level_close, _duration);
+        if (ret) {
+          rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", steps, _duration);
+        };
+      };
+
+      // Post-processing
+      if (ret) {
         _last_changed = time(nullptr);
-        if (_state == 0) {
+        if ((_state == _min_steps) && (steps > 0)) {
           _last_max_state = 0;
           _last_open = time(nullptr);
         };
-        _state += steps;
-        if (_state > _last_max_state) {
+        _state = _state + steps;
+        if (_state == _min_steps) {
+          _last_close = time(nullptr);
+        } else if (_state > _last_max_state) {
           _last_max_state = _state;
         };
-        if (_on_changed) {
+
+        // Call нandlers
+        if (call_cb && (_on_changed)) {
           _on_changed(this, _state - steps, _state, _max_steps);
         };
         if (publish) {
           mqttPublish();
         };
-        return true;
+      } else {
+        rlog_e(logTAG, "Failed to activate shutter");
       };
-      rlog_e(logTAG, "Failed to activate shutter");
+      return ret;
     };
   };
   return false;
 }
 
-// Close the shutter by a specified number of steps
-bool rShutter::ClosePriv(uint8_t steps, bool publish)
+bool rShutter::Change(int8_t steps, bool publish)
 {
-  if (steps > 0) {
-    if (timerIsActive()) {
-      rlog_w(logTAG, "Drive busy, operation canceled");
-    } else {
-      // Calculate time
-      uint32_t _duration = 0;
-      for (uint8_t i = steps; i > 0 ; i--) {
-        _duration = _duration + calcStepTimeout(_state - i + 1);
-        if (_state - i == 0) {
-          _duration = _duration + _step_time_fin;
-        }
-      };
-      // Turn on the drive for the сalculated time
-      if (timerActivate(_pin_close, _level_close, _duration)) {
-        rlog_i(logTAG, "Close shutter %d steps ( %d milliseconds )", steps, _duration);
-        _last_changed = time(nullptr);
-        _state =- steps;
-        if (_state == 0) {
-          _last_close = time(nullptr);
-        };
-        if (_on_changed) {
-          _on_changed(this, _state + steps, _state, _max_steps);
-        };
-        if (publish) {
-          mqttPublish();
-        };
-        return true;
-      };
-      rlog_e(logTAG, "Failed to activate shutter");
-    };
-  };
-  return false;
+  return DoChange(checkLimits(steps), true, publish);
 }
-
-bool rShutter::Open(uint8_t steps, bool publish)
-{
-  int8_t _steps = checkLimits((int8_t)steps);
-  if (_steps > 0) {
-    return OpenPriv((uint8_t)_steps, publish);
-  } else if (_steps < 0) {
-    return ClosePriv((uint8_t)(-_steps), publish);
-  };
-  return false;
-}
-
-bool rShutter::Close(uint8_t steps, bool publish)
-{
-  int8_t _steps = checkLimits(-(int8_t)steps);
-  if (_steps < 0) {
-    return ClosePriv((uint8_t)(-_steps), publish);
-  } else if (_steps > 0) {
-    return OpenPriv((uint8_t)_steps, publish);
-  };
-  return false;
-}
-
 
 bool rShutter::OpenFull(bool publish)
 {
   if (_state < _max_steps) {
-    return Open(_max_steps - _state, publish);
+    return Change(_max_steps - _state, publish);
   };
   return false;
 }
@@ -267,24 +241,24 @@ bool rShutter::OpenFull(bool publish)
 // Full closure without regard to steps (until the limit switches are activated)
 bool rShutter::CloseFullEx(bool forced, bool call_cb, bool publish)
 {
-  if ((_state > _limit_min) || forced) {
-    if (_limit_min == 0) {
+  if (forced || (_state > _min_steps)) {
+    if (_limit_min <= _min_steps) {
       Break();
       if (timerActivate(_pin_close, _level_close, _full_time)) {
         rlog_i(logTAG, "Сlose shutter completely");
         _last_changed = time(nullptr);
         _last_close = time(nullptr);
-        if (call_cb && _on_changed) {
-          _on_changed(this, _state, _limit_min, _max_steps);
+        if (call_cb && (_on_changed)) {
+          _on_changed(this, _state, _min_steps, _max_steps);
         };
-        _state = 0;
+        _state = _min_steps;
         if (publish) {
           mqttPublish();
         };
         return true;
       };
     } else {
-      Close(_state - _limit_min, publish);
+      Change(_limit_min - _state, publish);
     };
   };
   return false;
@@ -312,8 +286,8 @@ int8_t rShutter::checkLimits(int8_t steps)
 {
   int8_t ret = steps;
   // Checking permanent limits
-  if ((_state + ret) < 0) {
-    ret = - _state;
+  if ((_state + ret) < _min_steps) {
+    ret = _min_steps - _state;
   };
   if ((_state + ret) > _max_steps) {
     ret = _max_steps - _state;
@@ -336,7 +310,7 @@ bool rShutter::setMinLimit(uint8_t limit, bool publish)
   if (limit != _limit_min) {
     _limit_min = limit;
     if (_state < _limit_min) {
-      return Open(_limit_min - _state, publish);
+      return Change(_limit_min - _state, publish);
     };
   };
   return false;
@@ -351,7 +325,7 @@ bool rShutter::setMaxLimit(uint8_t limit, bool publish)
       _limit_max = _max_steps;
     };
     if (_state > _limit_max) {
-      return Close(_state - _limit_max, publish);
+      return Change(_limit_max - _state, publish);
     };
   };
   return false;
@@ -359,7 +333,7 @@ bool rShutter::setMaxLimit(uint8_t limit, bool publish)
 
 bool rShutter::clearMinLimit(bool publish)
 {
-  return setMinLimit(0, publish);
+  return setMinLimit(_min_steps, publish);
 }
 
 bool rShutter::clearMaxLimit(bool publish)
@@ -407,7 +381,7 @@ bool rShutter::timerActivate(uint8_t pin, bool level, uint32_t duration_ms)
     timerCreate();
   };
   if (_timer != nullptr) {
-    RE_OK_CHECK(esp_timer_start_once(_timer, duration_ms*1000), return false);
+    RE_OK_CHECK(esp_timer_start_once(_timer, (uint64_t)(duration_ms)*1000), return false);
     if (gpioSetLevelPriv(pin, level)) {
       return true;
     } else {
@@ -514,11 +488,11 @@ char* rShutter::getJSON()
 // -----------------------------------------------------------------------------------------------------------------------
 
 rGpioShutter::rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-  uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+  int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
   cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
   cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
-  max_steps, full_time, step_time, step_time_adj, step_time_fin,
+  min_steps, max_steps, full_time, step_time, step_time_adj, step_time_fin,
   cb_gpio_before, cb_gpio_after, cb_timer, cb_state_changed, cb_mqtt_publish)
 {
 }
@@ -544,12 +518,12 @@ bool rGpioShutter::gpioSetLevel(uint8_t pin, bool physical_level)
 // -----------------------------------------------------------------------------------------------------------------------
 
 rIoExpShutter::rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
-  uint8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
+  int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
   cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
   cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
   cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish)
 :rShutter(pin_open, level_open, pin_close, level_close, 
-  max_steps, full_time, step_time, step_time_adj, step_time_fin,
+  min_steps, max_steps, full_time, step_time, step_time_adj, step_time_fin,
   cb_gpio_before, cb_gpio_after, cb_timer, cb_state_changed, cb_mqtt_publish)
 {
   _gpio_init = cb_gpio_init;
