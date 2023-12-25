@@ -501,9 +501,11 @@ bool rGpioShutter::gpioInit()
 {
   // Configure internal GPIO to output
   gpio_reset_pin((gpio_num_t)_pin_open);
-  gpio_reset_pin((gpio_num_t)_pin_close);
   ERR_SHUTTER_CHECK(gpio_set_direction((gpio_num_t)_pin_open, GPIO_MODE_OUTPUT), ERR_GPIO_SET_MODE);
-  ERR_SHUTTER_CHECK(gpio_set_direction((gpio_num_t)_pin_close, GPIO_MODE_OUTPUT), ERR_GPIO_SET_MODE);
+  if (_pin_open != _pin_close) {
+    gpio_reset_pin((gpio_num_t)_pin_close);
+    ERR_SHUTTER_CHECK(gpio_set_direction((gpio_num_t)_pin_close, GPIO_MODE_OUTPUT), ERR_GPIO_SET_MODE);
+  };
   return true;
 }
 
@@ -532,10 +534,14 @@ rIoExpShutter::rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_clos
 
 bool rIoExpShutter::gpioInit()
 {
+  bool ret = false;
   if (_gpio_init) {
-    return _gpio_init(this, _pin_open, _level_open) && _gpio_init(this, _pin_close, _level_close);
+    ret = _gpio_init(this, _pin_open, _level_open);
+    if (ret && (_pin_open != _pin_close)) {
+      ret = _gpio_init(this, _pin_close, _level_close);
+    };
   };
-  return true;
+  return ret;
 }
 
 bool rIoExpShutter::gpioSetLevel(uint8_t pin, bool physical_level)
