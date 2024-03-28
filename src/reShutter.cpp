@@ -74,6 +74,7 @@ bool rShutter::Init()
 
 bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
 {
+  // При активации привода (запуске таймера)
   if (physical_level) {
     if (pin == _pin_open) {
       _pin_open_state = true;
@@ -82,9 +83,12 @@ bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
     };
     if (_on_timer) _on_timer(this, pin, true);
   };
+
   if (_on_before) _on_before(this, pin);
   bool ret = gpioSetLevel(pin, physical_level);
   if (_on_after) _on_after(this, pin);
+  
+  // При дактивации привода (окончании таймера)
   if (ret && !physical_level) {
     if (pin == _pin_open) {
       _pin_open_state = false;
@@ -96,7 +100,7 @@ bool rShutter::gpioSetLevelPriv(uint8_t pin, bool physical_level)
   return ret;
 }
 
-// Disable all drives
+// Отключаем все GPIO, связанные с приводом
 bool rShutter::StopAll()
 {
   bool ret = true;
@@ -109,7 +113,7 @@ bool rShutter::StopAll()
   return ret;
 }
 
-// Current state
+// Текущее состояние привода
 uint8_t rShutter::getState()
 {
   return _state;
@@ -159,14 +163,14 @@ uint32_t rShutter::calcStepTimeout(int8_t step)
   return (uint32_t)ret;
 }
 
-// Open the shutter by a specified number of steps
+// Изменение состояния привода
 bool rShutter::DoChange(int8_t steps, bool call_cb, bool publish)
 {
   if (steps != 0) {
     if (timerIsActive()) {
-      rlog_w(logTAG, "Drive busy, operation canceled");
+      rlog_w(logTAG, "Drive is busy, operation canceled");
     } else {
-      // Calculate time
+      // Вычисляем время работы привода
       uint32_t _duration = 0;
       if (steps > 0) {
         for (int8_t i = 1; i <= steps; i++) {
@@ -181,7 +185,7 @@ bool rShutter::DoChange(int8_t steps, bool call_cb, bool publish)
         };
       };
 
-      // Turn on the drive for the сalculated time
+      // Включаем привод на заданное время
       bool ret = false;
       if (steps > 0) {
         ret = timerActivate(_pin_open, _level_open, _duration);
@@ -195,7 +199,7 @@ bool rShutter::DoChange(int8_t steps, bool call_cb, bool publish)
         };
       };
 
-      // Post-processing
+      // Post обработка
       if (ret) {
         _last_changed = time(nullptr);
         if ((_state == _min_steps) && (steps > 0)) {
@@ -209,7 +213,7 @@ bool rShutter::DoChange(int8_t steps, bool call_cb, bool publish)
           _last_max_state = _state;
         };
 
-        // Call нandlers
+        // Вызываем обработчики
         if (call_cb && (_on_changed)) {
           _on_changed(this, _state - steps, _state, _max_steps);
         };
@@ -238,7 +242,7 @@ bool rShutter::OpenFull(bool publish)
   return false;
 }
 
-// Full closure without regard to steps (until the limit switches are activated)
+// Полное закрытие без учета шагов (до срабатывания внутренних концевых выключателей привода)
 bool rShutter::CloseFullEx(bool forced, bool call_cb, bool publish)
 {
   if (forced || (_state > _min_steps)) {
@@ -536,9 +540,9 @@ bool rIoExpShutter::gpioInit()
 {
   bool ret = false;
   if (_gpio_init) {
-    ret = _gpio_init(this, _pin_open, _level_open);
+    ret = _gpio_init(this, _pin_open, !_level_open);
     if (ret && (_pin_open != _pin_close)) {
-      ret = _gpio_init(this, _pin_close, _level_close);
+      ret = _gpio_init(this, _pin_close, !_level_close);
     };
   };
   return ret;

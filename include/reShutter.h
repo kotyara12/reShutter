@@ -2,7 +2,7 @@
    EN: Class for controlling a faucet or window with a reverse step by step
    RU: Класс для управления краном или форточкой с реверсом по шагам
    --------------------------
-   (с) 2023 Разживин Александр | Razzhivin Alexander
+   (с) 2023-2024 Разживин Александр | Razzhivin Alexander
    kotyara12@yandex.ru | https://kotyara12.ru | tg: @kotyara1971
    --------------------------
    Страница проекта: https://github.com/kotyara12/reShutter
@@ -26,99 +26,372 @@ extern "C" {
 
 class rShutter;
 
+// -----------------------------------------------------------------------------------------------------------------------
+// ---------------------------------------------- Функции обратного вызова -----------------------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Функция обратного вызова для публикации состояния на MQTT брокере
+ * @brief Функция обратного вызова для публикации состояния на MQTT брокере
+ * @param shutter Указатель на экземпляр класса
+ * @param topic MQTT-топик
+ * @param payload JSON-пакет с данными (или только текущее состояние в виде строки)
+ * @param free_topic Удалить топик из кучи (памяти) после отправки данных
+ * @param free_payload Удалить данные из кучи (памяти) после отправки данных
+ * @return Вернется true, если данные удалось отправить
+ * */
 typedef bool (*cb_shutter_publish_t) (rShutter *shutter, char* topic, char* payload, bool free_topic, bool free_payload);
+
+/**
+ * Функция обратного вызова после изменения состояния привода
+ * @brief Функция обратного вызова после изменения состояния привода
+ * @param shutter Указатель на экземпляр класса
+ * @param from_step Состояние привода перед изменением
+ * @param to_step Состояние привода после изменения
+ * @param max_steps Максимальное количество шагов привода, на которое он настроен
+ * */
 typedef void (*cb_shutter_change_t) (rShutter *shutter, uint8_t from_step, uint8_t to_step, uint8_t max_steps);
+
+/**
+ * Функция обратного вызова при активации и деактивации таймера (то есть она вызывается при включении и выключении привода)
+ * @brief Функция обратного вызова при активации и деактивации таймера (то есть включения и выключения привода)
+ * @param shutter Указатель на экземпляр класса
+ * @param pin Номер GPIO, который используется в данный момент для управления приводом
+ * @param state Состояние GPIO (активен / не активен)
+ * */
 typedef void (*cb_shutter_timer_t) (rShutter *shutter, uint8_t pin, bool state);
+
+/**
+ * Функция обратного вызова при изменении состояния GPIO
+ * @brief Функция обратного вызова при изменении состояния GPIO
+ * @param shutter Указатель на экземпляр класса
+ * @param pin Номер GPIO, который используется в данный момент для управления приводом
+ * */
 typedef void (*cb_shutter_gpio_wrap_t) (rShutter *shutter, uint8_t pin);
+
+/**
+ * Функция обратного вызова для инициализации GPIO, если используется расширитель GPIO
+ * @brief Функция обратного вызова для инициализации GPIO, если используется расширитель GPIO
+ * @param shutter Указатель на экземпляр класса
+ * @param pin Номер GPIO, который используется для управления приводом
+ * @param level_active Логический уровень, который должен быть установлен при инициализации
+ * */
 typedef bool (*cb_shutter_gpio_init_t) (rShutter *shutter, uint8_t pin, bool level_active);
+
+/**
+ * Функция обратного вызова для управления приводом, если используется расширитель GPIO
+ * @brief Функция обратного вызова для управления приводом, если используется расширитель GPIO
+ * @param shutter Указатель на экземпляр класса
+ * @param pin Номер GPIO, который используется для управления приводом
+ * @param physical_level Логический уровень, который должен быть установлен на выходе
+ * */
 typedef bool (*cb_shutter_gpio_change_t) (rShutter *shutter, uint8_t pin, bool physical_level);
+
+// -----------------------------------------------------------------------------------------------------------------------
+// ------------------------------------------ Базовый абстрактный класс rShutter -----------------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
 
 class rShutter {
   public:
+    /**
+     * Инициализация абстрактного класса
+     * @brief Инициализация абстрактного класса
+     * @param pin_open Номер GPIO для открытия привода
+     * @param level_open Логический уровень, используемый для активации привода на открытие
+     * @param pin_close Номер GPIO для закрытия привода
+     * @param level_close Логический уровень, используемый для активации привода на закрытие
+     * @param min_steps Количество шагов в режиме "полностью закрыто"
+     * @param max_steps Количество шагов в режиме "полностью открыто"
+     * @param full_time Время в миллисекундах, которое требуется для перехода из "полностью закрыто" в "полностью открыто" и наоборот
+     * @param step_time Время одного шага в миллисекундах
+     * @param step_time_adj Коэффициент коррекции длительности каждого следующего шага, по умолчанию 1.0
+     * @param step_time_fin Добавочное время к последнему шагу при закрытии, для гарантированной доводки привода до состояния "полностью закрыто"
+     * @param cb_gpio_before Callback, вызываемый перед изменением состояния GPIO
+     * @param cb_gpio_after Callback, вызываемый после изменения состояния GPIO
+     * @param cb_timer Callback, вызываемый при запуске изменения состояния привода и сразу после его завершения
+     * @param cb_state_changed Callback, вызываемый при изменении состояния привода
+     * */
     rShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
       int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
+    
+    /**
+     * Уничтожение экземпляра класса
+     * @brief Уничтожение экземпляра класса
+     * */
     ~rShutter();
 
-    // Current state
-    uint8_t getState();
-    uint8_t getMaxSteps();
-    time_t getLastChange();
-    float getPercent();
-    bool isFullOpen();
-    bool isFullClose();
+    // -------------------------------------------------------------------------------------------------------------------
+    // Инициализация
+    // -------------------------------------------------------------------------------------------------------------------
 
-    // Generate JSON
-    char* getStateJSON(uint8_t state);
-    char* getTimestampsJSON();
-    char* getJSON();
-
+    /**
+     * Инициализация GPIO и внутренних переменных перед началом работы
+     * @brief Инициализация GPIO и внутренних переменных перед началом работы
+     * */
     bool Init();
 
-    // Open or close the shutter by a specified number of steps
+    // -------------------------------------------------------------------------------------------------------------------
+    // Чтение состояния привода
+    // -------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Получить текущее состояние привода в шагах
+     * @brief Полчить текущее состояние привода в шагах
+     * @return Текущее количество шагов, на которые открыт привод
+     * */
+    uint8_t getState();
+
+    /**
+     * Получить максимальное количество шагов привода (от "полностью закрыто" до "полностью открыто")
+     * @brief Получить максимальное количество шагов привода (от "полностью закрыто" до "полностью открыто")
+     * @return Максимальное количество шагов привода (от "полностью закрыто" до "полностью открыто")
+     * */
+    uint8_t getMaxSteps();
+
+    /**
+     * Получить время последнего изменения состояния привода
+     * @brief Получить время последнего изменения состояния привода
+     * @return Время последнего изменения состояния привода
+     * */
+    time_t getLastChange();
+
+    /**
+     * Получить текущее состояние привода в процентах
+     * @brief Полчить текущее состояние привода в процентах
+     * @return Текущее состояние привода в процентах
+     * */
+    float getPercent();
+
+    /**
+     * Проверить, открыт ли привод полностью
+     * @brief Проверить, открыт ли привод полностью
+     * @return Если привод в состоянии "полностью открыто", вернется 0x01, иначе - 0x00
+     * */
+    bool isFullOpen();
+    /**
+     * Проверить, закрыт ли привод полностью
+     * @brief Проверить, закрыт ли привод полностью
+     * @return Если привод в состоянии "полностью закрыто", вернется 0x01, иначе - 0x00
+     * */
+    bool isFullClose();
+
+    // -------------------------------------------------------------------------------------------------------------------
+    // Генерация JSON-пакета
+    // -------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Генерация части JSON-пакета с данными о состоянии привода
+     * @brief Генерация JSON-пакета с данными о состоянии привода
+     * @param state Состояние привода, напаример можно использовать getState()
+     * @return Строка, размещенная в динамической памяти
+     * */
+    char* getStateJSON(uint8_t state);
+
+    /**
+     * Генерация части JSON-пакета с данными о времени изменения состояния привода
+     * @brief Генерация части JSON-пакета с данными о времени изменения состояния привода
+     * @return Строка, размещенная в динамической памяти
+     * */
+    char* getTimestampsJSON();
+
+    /**
+     * Генерация полного JSON-пакета с данными о состоянии привода, готового к публикации на MQTT
+     * @brief Генерация полного JSON-пакета с данными о состоянии привода, готового к публикации на MQTT
+     * @return Строка, размещенная в динамической памяти
+     * */
+    char* getJSON();
+
+    // -------------------------------------------------------------------------------------------------------------------
+    // Управление приводом
+    // -------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Открыть или закрыть привод на заданное количество шагов
+     * @brief Открыть или закрыть привод на заданное количество шагов
+     * @param steps Количество шагов, на которое необходимо изменить состояние привода: положительное - открыть, отрицательное - закрыть
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool Change(int8_t steps, bool publish);
-    bool OpenFull(bool publish);
-    bool CloseFullEx(bool forced, bool call_cb, bool publish);
-    bool CloseFull(bool forced, bool publish);
+
+    /**
+     * Проверить, занят ли привод в текущее время (то есть выполняется изменение состояния)
+     * @brief Проверить, занят ли привод в текущее время (то есть выполняется изменение состояния)
+     * @return Вернет true, если привод работает в текущее время и не может выполнить другую операцию
+     * */
     bool isBusy();
+
+    /**
+     * Прервать текущую операцию
+     * @brief Прервать текущую операцию
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool Break();
 
-    // Limits
+    /**
+     * Перевести привод в состояние "полностью открыто"
+     * @brief Перевести привод в состояние "полностью открыто"
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
+    bool OpenFull(bool publish);
+
+    /**
+     * Перевести привод в состояние "полностью закрыто" - расширенная версия
+     * @brief Перевести привод в состояние "полностью закрыто" - расширенная версия
+     * @param forced Не учитывать текущее состояния (включить режим закрытия на полное время)
+     * @param call_cb Вызывать функции обратного вызова при изменении состояния
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
+    bool CloseFullEx(bool forced, bool call_cb, bool publish);
+
+    /**
+     * Перевести привод в состояние "полностью закрыто"
+     * @brief Перевести привод в состояние "полностью закрыто"
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
+    bool CloseFull(bool forced, bool publish);
+
+    // -------------------------------------------------------------------------------------------------------------------
+    // Ограничения
+    // -------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Корректировать количество шагов изменения состояния с учетом ограничений
+     * @brief Корректировать количество шагов изменения состояния с учетом ограничений
+     * @param steps Количество шагов, на которое необходимо изменить состояние привода
+     * @return Количество шагов, на которое можно изменить состояние привода с учетом ограничений
+     * */
     int8_t checkLimits(int8_t steps);
+
+    /**
+     * Установить минимальное ограничение (то есть "нельзя закрыть полностью")
+     * @brief Установить минимальное ограничение (то есть "нельзя закрыть полностью")
+     * @param limit Минимально допустимое количество шагов в пределах диапазона, заданного при создании экземпляра класса
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool setMinLimit(uint8_t limit, bool publish);
+
+    /**
+     * Установить максимальное ограничение (то есть "нельзя открыть полностью")
+     * @brief Установить максимальное ограничение (то есть "нельзя открыть полностью")
+     * @param limit Максимально допустимое количество шагов в пределах диапазона, заданного при создании экземпляра класса
+     * @param publish Опубликовать состояние сразу после успешного выполнения запрошенной операции
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool setMaxLimit(uint8_t limit, bool publish);
+
+    /**
+     * Отменить ранее установленное минимальное ограничение
+     * @brief Отменить ранее установленное минимальное ограничение
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool clearMinLimit(bool publish);
+
+    /**
+     * Отменить ранее установленное максимальное ограничение
+     * @brief Отменить ранее установленное максимальное ограничение
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool clearMaxLimit(bool publish);
 
+    // -------------------------------------------------------------------------------------------------------------------
     // MQTT
+    // -------------------------------------------------------------------------------------------------------------------
+
+    /**
+     * Установить функцию обратного вызова для публикации на MQTT
+     * @brief Установить функцию обратного вызова для публикации на MQTT
+     * @param cb_publish Callback, вызываемый при публикации данных на MQTT
+     * */
     void mqttSetCallback(cb_shutter_publish_t cb_publish);
+
+    /**
+     * Получить текущий MQTT топик
+     * @brief Получить текущий MQTT топик
+     * @return Текущий MQTT топик в динамической памяти
+     * */
     char* mqttTopicGet();
+
+    /**
+     * Задать MQTT топик
+     * @brief Задать MQTT топик
+     * @param topic MQTT топик в динамической памяти
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool mqttTopicSet(char* topic);
+
+    /**
+     * Генерировать MQTT топик по заданным правилам
+     * @brief Генерировать MQTT топик по заданным правилам
+     * @param primary Если true - это основной сервер, если false - это резервный сервер
+     * @param local Если true - использовать локальную схему генерации топиков, если false - использовать основную схему генерации топиков
+     * @param topic1 Первая составная часть топика
+     * @param topic2 Вторая составная часть топика, может быть NULL
+     * @param topic3 Третья составная часть топика, может быть NULL
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool mqttTopicCreate(bool primary, bool local, const char* topic1, const char* topic2, const char* topic3);
+    
+    /**
+     * Удалить из памяти ранее сгенерированный или прикрепленный MQTT топик
+     * @brief Удалить из памяти ранее сгенерированный или прикрепленный MQTT топик
+     * */
     void mqttTopicFree();
+    
+    /**
+     * Публиковать данные на MQTT сервере
+     * @brief Публиковать данные на MQTT сервере
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool mqttPublish();
 
-    // !!! Only for the timer callback function! Don't use it directly
+    // -------------------------------------------------------------------------------------------------------------------
+    // Прервать всё !!! Не вызывайте напрямую - эта функция только для обработчика таймера
+    // -------------------------------------------------------------------------------------------------------------------
     bool StopAll();
   protected:
-    uint8_t     _pin_open = 0;                    // Pin number to open
-    bool        _level_open = true;               // Logic level to open
-    uint8_t     _pin_close = 0;                   // Pin number to close
-    bool        _level_close = true;              // Logic level to close
+    uint8_t     _pin_open = 0;
+    bool        _level_open = true;
+    uint8_t     _pin_close = 0;
+    bool        _level_close = true;
 
     virtual bool gpioInit() = 0;
     virtual bool gpioSetLevel(uint8_t pin, bool physical_level) = 0; 
   private:
-    uint32_t              _full_time = 15000;       // Full closing time in milliseconds
-    int8_t                _min_steps = 0;           // Number of steps to fully closed
-    int8_t                _max_steps = 10;          // Number of steps to fully open
-    uint32_t              _step_time = 1000;        // Time delay by one step in milliseconds
-    float                 _step_time_adj = 1.00;    // Delay adjustment factor for each next step
-    uint32_t              _step_time_fin = 0;       // Finishing time
-    int8_t                _state = 0;               // Current state
-    uint8_t               _pin_open_state = 0;      // Current state of open GPIO
-    uint8_t               _pin_close_state = 0;     // Current state of close GPIO
-    int8_t                _limit_min = INT8_MIN;    // Minimum opening limit
-    int8_t                _limit_max = INT8_MAX;    // Maximum opening limit
-    time_t                _last_changed = 0;        // Time of last state change
-    time_t                _last_open = 0;           // Time of last open
-    time_t                _last_close = 0;          // Time of last close
-    int8_t                _last_max_state = 0;      // Last maximum opening
-    esp_timer_handle_t    _timer = nullptr;         // Step timer
-    char*                 _mqtt_topic = nullptr;    // MQTT topic
+    uint32_t                _full_time = 15000;
+    int8_t                  _min_steps = 0;
+    int8_t                  _max_steps = 10;
+    uint32_t                _step_time = 1000;
+    float                   _step_time_adj = 1.00;
+    uint32_t                _step_time_fin = 0;
+    int8_t                  _state = 0;
+    uint8_t                 _pin_open_state = 0;
+    uint8_t                 _pin_close_state = 0;
+    int8_t                  _limit_min = INT8_MIN;
+    int8_t                  _limit_max = INT8_MAX;
+    time_t                  _last_changed = 0;
+    time_t                  _last_open = 0;
+    time_t                  _last_close = 0;
+    int8_t                  _last_max_state = 0;
+    esp_timer_handle_t      _timer = nullptr;
+    char*                   _mqtt_topic = nullptr;
 
-    cb_shutter_change_t     _on_changed = nullptr;   // Pointer to the callback function to be called after load switching
-    cb_shutter_gpio_wrap_t  _on_before = nullptr;    // Pointer to the callback function to be called before set physical level to GPIO
-    cb_shutter_gpio_wrap_t  _on_after = nullptr;     // Pointer to the callback function to be called after set physical level to GPIO
-    cb_shutter_timer_t      _on_timer = nullptr;     // Pointer to the callback function to be called before start timer and after end timer
-    cb_shutter_publish_t    _mqtt_publish = nullptr; // Pointer to the publish callback function
+    cb_shutter_change_t     _on_changed = nullptr;
+    cb_shutter_gpio_wrap_t  _on_before = nullptr;
+    cb_shutter_gpio_wrap_t  _on_after = nullptr;
+    cb_shutter_timer_t      _on_timer = nullptr;
+    cb_shutter_publish_t    _mqtt_publish = nullptr;
 
     uint32_t calcStepTimeout(int8_t step);
     bool gpioSetLevelPriv(uint8_t pin, bool physical_level);
     bool DoChange(int8_t steps, bool call_cb, bool publish);
 
-    // Timer
     bool timerCreate();
     bool timerFree();
     bool timerActivate(uint8_t pin, bool level, uint32_t duration_ms);
@@ -126,26 +399,96 @@ class rShutter {
     bool timerStop();
 };
 
+// -----------------------------------------------------------------------------------------------------------------------
+// --------------------------------- Класс rGpioShutter для работы через встроенные GPIO ---------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
+
 class rGpioShutter: public rShutter {
   public:
+    /**
+     * Инициализация экземпляра класса, предназначенного для работы с встроенными GPIO
+     * @brief Инициализация экземпляра класса, предназначенного для работы с встроенными GPIO
+     * @param pin_open Номер GPIO для открытия привода
+     * @param level_open Логический уровень, используемый для активации привода на открытие
+     * @param pin_close Номер GPIO для закрытия привода
+     * @param level_close Логический уровень, используемый для активации привода на закрытие
+     * @param min_steps Количество шагов в режиме "полностью закрыто"
+     * @param max_steps Количество шагов в режиме "полностью открыто"
+     * @param full_time Время в миллисекундах, которое требуется для перехода из "полностью закрыто" в "полностью открыто" и наоборот
+     * @param step_time Время одного шага в миллисекундах
+     * @param step_time_adj Коэффициент коррекции длительности каждого следующего шага, по умолчанию 1.0
+     * @param step_time_fin Добавочное время к последнему шагу при закрытии, для гарантированной доводки привода до состояния "полностью закрыто"
+     * @param cb_gpio_before Callback, вызываемый перед изменением состояния GPIO
+     * @param cb_gpio_after Callback, вызываемый после изменения состояния GPIO
+     * @param cb_timer Callback, вызываемый при запуске изменения состояния привода и сразу после его завершения
+     * @param cb_state_changed Callback, вызываемый при изменении состояния привода
+     * @param cb_mqtt_publish Callback, вызываемый при публикации данных на MQTT
+     * */
     rGpioShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
       int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
   protected:
+    /**
+     * Инициализация GPIO перед началом работы
+     * @brief Инициализация GPIO перед началом работы
+     * */
     bool gpioInit() override;
+    /**
+     * Изменение состояния встроенного GPIO
+     * @brief Изменение состояния встроенного GPIO
+     * @param pin Номер вывода встроенного GPIO 
+     * @param physical_level Физический уровень, который необходимо установить на данном GPIO 
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool gpioSetLevel(uint8_t pin, bool physical_level) override; 
 };
 
+// -----------------------------------------------------------------------------------------------------------------------
+// -------------------------------- Класс rIoExpShutter для работы через расширители GPIO --------------------------------
+// -----------------------------------------------------------------------------------------------------------------------
+
 class rIoExpShutter: public rShutter {
   public:
+    /**
+     * Инициализация экземпляра класса, предназначенного для работы через расширители GPIO
+     * @brief Инициализация экземпляра класса, предназначенного для работы через расширители GPIO
+     * @param pin_open Номер GPIO для открытия привода
+     * @param level_open Логический уровень, используемый для активации привода на открытие
+     * @param pin_close Номер GPIO для закрытия привода
+     * @param level_close Логический уровень, используемый для активации привода на закрытие
+     * @param min_steps Количество шагов в режиме "полностью закрыто"
+     * @param max_steps Количество шагов в режиме "полностью открыто"
+     * @param full_time Время в миллисекундах, которое требуется для перехода из "полностью закрыто" в "полностью открыто" и наоборот
+     * @param step_time Время одного шага в миллисекундах
+     * @param step_time_adj Коэффициент коррекции длительности каждого следующего шага, по умолчанию 1.0
+     * @param step_time_fin Добавочное время к последнему шагу при закрытии, для гарантированной доводки привода до состояния "полностью закрыто"
+     * @param cb_gpio_init Callback, вызываемый при инициализации GPIO
+     * @param cb_gpio_change Callback, вызываемый при измении состояния GPIO
+     * @param cb_gpio_before Callback, вызываемый перед изменением состояния GPIO
+     * @param cb_gpio_after Callback, вызываемый после изменения состояния GPIO
+     * @param cb_timer Callback, вызываемый при запуске изменения состояния привода и сразу после его завершения
+     * @param cb_state_changed Callback, вызываемый при изменении состояния привода
+     * @param cb_mqtt_publish Callback, вызываемый при публикации данных на MQTT
+     * */
     rIoExpShutter(uint8_t pin_open, bool level_open, uint8_t pin_close, bool level_close, 
       int8_t min_steps, int8_t max_steps, uint32_t full_time, uint32_t step_time, float step_time_adj, uint32_t step_time_fin,
       cb_shutter_gpio_init_t cb_gpio_init, cb_shutter_gpio_change_t cb_gpio_change,
       cb_shutter_gpio_wrap_t cb_gpio_before, cb_shutter_gpio_wrap_t cb_gpio_after, cb_shutter_timer_t cb_timer, 
       cb_shutter_change_t cb_state_changed, cb_shutter_publish_t cb_mqtt_publish);
   protected:
+    /**
+     * Инициализация GPIO перед началом работы
+     * @brief Инициализация GPIO перед началом работы
+     * */
     bool gpioInit() override;
+    /**
+     * Изменение состояния внешнего GPIO
+     * @brief Изменение состояния внешнего GPIO
+     * @param pin Номер вывода внешнего GPIO 
+     * @param physical_level Физический уровень, который необходимо установить на данном GPIO 
+     * @return Вернет true в случае успешного выполнения операции
+     * */
     bool gpioSetLevel(uint8_t pin, bool physical_level) override; 
   private:
     cb_shutter_gpio_init_t _gpio_init = nullptr;
