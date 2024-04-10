@@ -283,7 +283,7 @@ bool rShutter::Break()
   if (timerIsActive()) {
     return timerStop();
   };
-  return false;
+  return true;
 }
 
 int8_t rShutter::checkLimits(int8_t steps)
